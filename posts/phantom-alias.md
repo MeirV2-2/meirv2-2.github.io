@@ -1,4 +1,7 @@
-﻿Most in-process injection techniques die at the same checkpoint. A scanner walks the process's loaded modules, finds executable memory that doesn't belong to any of them, and asks why. Allocate private RWX, reflectively load a DLL nobody knows about, overwrite a real module's `.text` - every variant trips on the same kind of bookkeeping mismatch. Either the bytes don't match what's supposed to be there, the memory type is wrong for code, or there's a module the OS doesn't think exists.
+# meirv2-2.github.io
+# PhantomAlias: Module Identity Without the Module
+
+Most in-process injection techniques die at the same checkpoint. A scanner walks the process's loaded modules, finds executable memory that doesn't belong to any of them, and asks why. Allocate private RWX, reflectively load a DLL nobody knows about, overwrite a real module's `.text` - every variant trips on the same kind of bookkeeping mismatch. Either the bytes don't match what's supposed to be there, the memory type is wrong for code, or there's a module the OS doesn't think exists.
 
 PhantomAlias takes a different trade. Pick any legit, signed Microsoft DLL the process plausibly uses, then convince the loader's accounting that a brand-new private allocation IS a second instance of that DLL. The real one stays untouched. No bytes are overwritten anywhere, on disk or in memory. The file is never even opened.
 
@@ -14,7 +17,7 @@ The Windows loader tracks loaded modules in four places that scanners care about
 
 2. **`LdrpModuleBaseAddressIndex`** - an undocumented red-black tree keyed on `DllBase`. Each `LDR_DATA_TABLE_ENTRY` carries an embedded `RTL_BALANCED_NODE` (`BaseAddressIndexNode` field, at offset `0xC8` in modern Win10/11) that the loader splices into this tree on load. `RtlPcToFileHeader` walks it to answer "which loaded module owns this IP?" in O(log n) instead of a linear scan of the PEB lists. Stack walkers call it once per frame.
 
-3. **`NtQueryVirtualMemory(MemorySectionName)`** - kernel-side query that returns the file path backing an image or mapped section. It reads `SECTION_OBJECT_POINTERS ג†’ ControlArea ג†’ FilePointer ג†’ FileName` in the kernel. Unforgeable from user mode without driver access. Private memory has no section object at all, so the call returns `STATUS_INVALID_ADDRESS`.
+3. **`NtQueryVirtualMemory(MemorySectionName)`** - kernel-side query that returns the file path backing an image or mapped section. It reads `SECTION_OBJECT_POINTERS → ControlArea → FilePointer → FileName` in the kernel. Unforgeable from user mode without driver access. Private memory has no section object at all, so the call returns `STATUS_INVALID_ADDRESS`.
 
 4. **PE `.pdata`** - each loaded image's `IMAGE_DIRECTORY_ENTRY_EXCEPTION` data: a packed `RUNTIME_FUNCTION[]` array describing every function's `[BeginAddress, EndAddress)` range and a pointer to its `UNWIND_INFO`. Used by `RtlVirtualUnwind` for SEH and stack walking, and by every cross-process stack walker (System Informer, dbghelp's `StackWalkEx`) which read pdata directly from target memory because they can't call the target's `RtlLookupFunctionEntry`.
 
@@ -55,7 +58,7 @@ NtAllocateVirtualMemory(NtCurrentProcess(), &base, 0, &size,
 
 Plain version: ask the kernel for a chunk of process-private memory big enough to hold the payload, its unwind data, and some breathing room.
 
-`NtAllocateVirtualMemory` is the native counterpart of `VirtualAllocEx`. The pseudo-handle `(HANDLE)-1` targets the current process. Passing `nullptr` for the base lets the kernel pick the address; if you'd rather not have it picked you can supply a hint. `MEM_COMMIT | MEM_RESERVE` does both steps in one call - reserves the address range and backs it with pages immediately. Initial protection is `PAGE_READWRITE` because we need to write the payload bytes; we promote to `PAGE_EXECUTE_READ` per-page once the bytes are in place. Strict W^X - never `PAGE_EXECUTE_READWRITE`, not even transiently, because the Wג†’X transition is what EDR `NtProtectVirtualMemory` hooks alert on for shellcode loaders.
+`NtAllocateVirtualMemory` is the native counterpart of `VirtualAllocEx`. The pseudo-handle `(HANDLE)-1` targets the current process. Passing `nullptr` for the base lets the kernel pick the address; if you'd rather not have it picked you can supply a hint. `MEM_COMMIT | MEM_RESERVE` does both steps in one call - reserves the address range and backs it with pages immediately. Initial protection is `PAGE_READWRITE` because we need to write the payload bytes; we promote to `PAGE_EXECUTE_READ` per-page once the bytes are in place. Strict W^X - never `PAGE_EXECUTE_READWRITE`, not even transiently, because the W→X transition is what EDR `NtProtectVirtualMemory` hooks alert on for shellcode loaders.
 
 Memory regions on Windows are tagged by `Type` in `MEMORY_BASIC_INFORMATION`: `MEM_IMAGE` (backed by a SEC_IMAGE section, the type used for every loaded DLL), `MEM_MAPPED` (backed by a SEC_COMMIT section or pagefile), or `MEM_PRIVATE` (committed via `NtAllocateVirtualMemory` directly). Heaps and stacks are private; code rarely is. That asymmetry is what makes private+exec a meaningful signal.
 
@@ -157,7 +160,7 @@ The tree address isn't exported. To find it, walk up from any known entry's `Bas
 
 Once inserted, any call to `RtlPcToFileHeader` with an IP in `[base, base+size)` traverses the tree, finds our node, and returns the `LDR_DATA_TABLE_ENTRY` it's embedded in - which says the alias name.
 
-![alt text](image-1.png)
+<img width="493" height="358" alt="image" src="https://github.com/user-attachments/assets/b8f4ccb2-2e32-49b0-8166-458810307e41" />
 
 ### 5. Register unwind data
 
@@ -199,7 +202,7 @@ A stack trace of a thread running the payload:
 ```
 ntdll!NtWaitForSingleObject
 KernelBase!WaitForSingleObjectEx
-<alias>!<offset>                ג† the payload
+<alias>!<offset>                ← the payload
 ntdll!TppExecuteWaitCallback
 ntdll!TppWorkerThread
 ntdll!RtlUserThreadStart
@@ -223,7 +226,7 @@ The payload's frames symbolize as the alias DLL because that's what the AVL hand
 
 I ran [Moneta](https://github.com/forrest-orr/moneta) Forrest Orr's open-source scanner against a reference implementation. The relevant output, with addresses redacted:
 
-![alt text](image.png)
+<img width="1719" height="867" alt="image" src="https://github.com/user-attachments/assets/755cb1e5-9a40-4cb7-9883-864bdd46ceb8" />
 
 (Representative; exact addresses vary per run.)
 
