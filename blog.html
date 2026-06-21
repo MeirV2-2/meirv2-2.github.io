@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Writeups</title>
+<meta name="description" content="Research notes and technical writeups.">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="top">
+    <div class="inner">
+        <a href="./" class="brand">phantom<span class="dot">::</span>alias</a>
+        <div class="links">
+            <a href="./">home</a>
+            <a href="https://github.com/YOUR_GITHUB/phantomalias">github</a>
+        </div>
+    </div>
+</nav>
+
+<main>
+    <section class="page-head">
+        <h1>Writeups</h1>
+        <p class="page-sub">Research notes, technique walkthroughs, debugging stories.</p>
+    </section>
+
+    <ul class="post-list" id="post-list">
+        <li class="loading">Loading posts…</li>
+    </ul>
+</main>
+
+<footer>
+    <p>
+        <a href="./">← home</a> ·
+        <a href="https://github.com/YOUR_GITHUB/phantomalias">GitHub</a>
+    </p>
+</footer>
+
+<script>
+(async function () {
+    const list = document.getElementById('post-list');
+    try {
+        const res = await fetch('posts.json', { cache: 'no-cache' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const posts = (data.posts || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        if (!posts.length) {
+            list.innerHTML = '<li class="loading">No posts yet.</li>';
+            return;
+        }
+
+        list.innerHTML = '';
+        for (const p of posts) {
+            const li = document.createElement('li');
+            li.className = 'post-item';
+            li.innerHTML =
+                '<a class="post-link" href="post.html?p=' + encodeURIComponent(p.slug) + '">' +
+                  '<time class="post-date">' + (p.date || '') + '</time>' +
+                  '<h2 class="post-title">' + escapeHtml(p.title || p.slug) + '</h2>' +
+                  '<p class="post-summary">' + escapeHtml(p.summary || '') + '</p>' +
+                  '<span class="post-cta">read &rarr;</span>' +
+                '</a>';
+            list.appendChild(li);
+        }
+    } catch (e) {
+        list.innerHTML = '<li class="loading" style="color:var(--red)">Failed to load posts: ' + escapeHtml(e.message) + '</li>';
+    }
+})();
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+</script>
+
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhantomAlias — Module Identity Without the Module</title>
+<meta name="description" content="A Windows x64 loader that wears a signed Microsoft DLL's identity without touching the original. Defeats module-integrity scanners while keeping module attribution.">
+<meta name="theme-color" content="#0a0a0a">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="top">
+    <div class="inner">
+        <a href="./" class="brand">phantom<span class="dot">::</span>alias</a>
+        <div class="links">
+            <a href="blog.html">writeups</a>
+            <a href="https://github.com/YOUR_GITHUB/phantomalias">github</a>
+        </div>
+    </div>
+</nav>
+
+<main>
+
+<section class="hero">
+    <h1>Module identity <span class="accent">without</span> the module.</h1>
+    <p class="tagline">
+        A Windows x64 loader that convinces the loader graph a brand-new private allocation
+        is a second instance of a signed Microsoft DLL — without touching the original on disk
+        or in memory. Defeats integrity scanners. Keeps module attribution for stack walks.
+    </p>
+    <div class="ctas">
+        <a class="btn primary" href="post.html?p=phantom-alias">Read the writeup →</a>
+        <a class="btn" href="https://github.com/YOUR_GITHUB/phantomalias">View source</a>
+    </div>
+</section>
+
+<div class="terminal">
+    <div class="titlebar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>phantomalias.exe beacon.bin --pic --pic-pdata p.bin --pic-xdata x.bin</span>
+    </div>
+<pre><span class="dim">phantomalias — private-region module alias loader</span>
+<span class="dim">==================================================</span>
+
+<span class="info">[*]</span> Payload : beacon.bin  (shellcode)
+<span class="info">[*]</span> Alias   : crypt32.dll
+<span class="info">[*]</span> Backing : MEM_PRIVATE
+<span class="ok">[+]</span> Payload loaded: 103183 bytes
+<span class="ok">[+]</span> pdata: 2124 bytes (177 entries) | xdata: 2940 bytes
+<span class="info">[*]</span> crypt32.dll not loaded; calling LdrLoadDll
+<span class="ok">[+]</span> Alias target: base=00007FFBA69A0000  size=0x178000
+<span class="ok">[+]</span> Phantom region: base=00000172A41B0000  size=0x1C000  pic=+0x1000..+0x1A30F
+<span class="ok">[+]</span> Phantom LDR entry: 00000172A2208140  (BaseDllName=crypt32.dll)
+<span class="ok">[+]</span> PE-VA encoded pdata detected; subtracting pdata=0xF0000000 xdata=0x00019B5C
+<span class="ok">[+]</span> Bootstrap stub at PIC+0 — synthesized 12-byte UNWIND_INFO at xdata+0xB7C
+<span class="ok">[+]</span> Unwind: 178 RUNTIME_FUNCTION entries registered
+<span class="ok">[+]</span> TP_WAIT armed; callback = 00000172A41B1000
+
+<span class="ok">[+]</span> Parked. Ctrl+C to terminate.</pre>
+</div>
+
+<section class="section">
+    <h2>What it does</h2>
+    <p>
+        Pick any signed Microsoft DLL the host process plausibly uses. Allocate a fresh
+        private region. Hand-build an <code>LDR_DATA_TABLE_ENTRY</code> that claims to be
+        a second instance of that DLL — and splice it into <code>PEB->Ldr</code> plus
+        <code>LdrpModuleBaseAddressIndex</code> alongside the real one. The real DLL stays
+        byte-identical to disk. The phantom carries your payload.
+    </p>
+    <p>
+        Stack walks, <code>EnumProcessModules</code>, and <code>RtlPcToFileHeader</code> all
+        attribute the payload's code to the alias DLL. No threads start in private memory.
+        No image bytes are modified. No ETW image-load events fire for the new region.
+    </p>
+</section>
+
+<section class="section">
+    <h2>Features</h2>
+    <div class="grid">
+        <div class="card">
+            <h4>Pure private</h4>
+            <p>
+                <code>NtAllocateVirtualMemory(MEM_PRIVATE)</code> for the payload. No module
+                stomping, no SEC_IMAGE backing, no sacrificial DLL to keep alive.
+            </p>
+        </div>
+        <div class="card">
+            <h4>Loader-graph alias</h4>
+            <p>
+                Phantom <code>LDR_DATA_TABLE_ENTRY</code> spliced into <code>PEB->Ldr</code>
+                and inserted into <code>LdrpModuleBaseAddressIndex</code> (the AVL).
+            </p>
+        </div>
+        <div class="card">
+            <h4>W^X enforced</h4>
+            <p>
+                Strict per-page protections. RX for code, R for read-only, RW for data.
+                Never <code>PAGE_EXECUTE_READWRITE</code>, not even transiently.
+            </p>
+        </div>
+        <div class="card">
+            <h4>Threadpool dispatch</h4>
+            <p>
+                No <code>CreateThread</code>. Payload runs via a TP_WAIT callback from
+                <code>ntdll!TppWorkerThread</code> — clean stack origin.
+            </p>
+        </div>
+        <div class="card">
+            <h4>Real unwind</h4>
+            <p>
+                Registers payload pdata via <code>RtlAddGrowableFunctionTable</code> so
+                <code>RtlVirtualUnwind</code> walks cleanly through your frames.
+            </p>
+        </div>
+        <div class="card">
+            <h4>PIC + DLL</h4>
+            <p>
+                Loads either a manually-mapped DLL or raw position-independent shellcode.
+                Bring-your-own pdata/xdata is supported for PIC.
+            </p>
+        </div>
+        <div class="card">
+            <h4>XOR encoding</h4>
+            <p>
+                On-disk payload can be XOR-encoded with any even-length hex key. Loader
+                decodes in memory before mapping.
+            </p>
+        </div>
+        <div class="card">
+            <h4>Pure NT</h4>
+            <p>
+                All APIs resolved by PEB walk + manual export-directory parse. No
+                <code>LoadLibrary</code>, no <code>GetProcAddress</code>.
+            </p>
+        </div>
+    </div>
+</section>
+
+<section class="section">
+    <h2>Build</h2>
+    <pre><code>make          # MinGW-w64 g++ (default)
+make msvc     # MSVC cl.exe (from a vcvars64 shell)
+build.bat     # Windows-only fallback (auto-detects VS 2022)</code></pre>
+</section>
+
+<section class="section">
+    <h2>Use</h2>
+    <pre><code>phantomalias.exe agent.dll
+phantomalias.exe beacon.bin --pic
+phantomalias.exe beacon.bin --pic --alias wininet.dll
+phantomalias.exe beacon.bin --pic --pic-pdata p.bin --pic-xdata x.bin
+phantomalias.exe agent.enc --xor-key DEADBEEFCAFEBABE</code></pre>
+    <p>
+        For PIC payloads with stack-walkable frames, extract <code>.text</code>,
+        <code>.pdata</code>, and <code>.xdata</code> from a built PE:
+    </p>
+    <pre><code>python extract_pic.py build/beacon.dll out/beacon</code></pre>
+</section>
+
+<section class="section">
+    <h2>Detection trade-off</h2>
+    <p>
+        The technique pays one tell: a single <code>MEM_PRIVATE</code> region with
+        <code>PAGE_EXECUTE_READ</code>. That signal alone is noisy — Citrix, Adobe Reader's
+        broker, .NET's JIT, V8's stub code, and a dozen other legitimate frameworks
+        produce the same artifact. Production EDRs correlate it with other indicators.
+        Everything else (thread origin, image bytes, module enumeration, unwind, ETW)
+        stays consistent with the alias DLL.
+    </p>
+    <p>
+        <a href="post.html?p=phantom-alias">Read the full writeup →</a>
+    </p>
+</section>
+
+</main>
+
+<footer>
+    <p>
+        Built for research and authorized red-team use ·
+        <a href="https://github.com/YOUR_GITHUB/phantomalias">GitHub</a> ·
+        <a href="blog.html">Writeups</a>
+    </p>
+</footer>
+
+</body>
+</html>
