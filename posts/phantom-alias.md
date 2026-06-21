@@ -233,6 +233,7 @@ KernelBase!WaitForSingleObjectEx
 <alias>!<offset>                ← the payload
 ntdll!TppExecuteWaitCallback
 ntdll!TppWorkerThread
+kernel32!BaseThreadInitThunk
 ntdll!RtlUserThreadStart
 ```
 
