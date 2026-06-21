@@ -373,19 +373,25 @@ hr {
 }
 
 img, svg, video {
-    max-width: 100%;
-    height: auto;
+    max-width: min(100%, 560px) !important;
+    max-height: 420px !important;
+    width: auto !important;
+    height: auto !important;
     display: block;
     margin: 24px auto;
     border-radius: 6px;
     border: 1px solid var(--border);
     background: var(--surface);
+    object-fit: contain;
 }
 
 article img,
 article svg,
-article video {
-    max-width: 100%;
+article video,
+.section img,
+.section svg,
+.section video {
+    max-width: min(100%, 560px) !important;
 }
 
 figure {
@@ -423,6 +429,84 @@ footer a:hover { color: var(--accent); }
 ::selection {
     background: var(--accent);
     color: var(--bg);
+}
+
+.me {
+    padding: 48px 0 32px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+}
+
+.me .handle {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--green);
+    margin: 0 0 12px;
+    letter-spacing: 0.02em;
+}
+
+.me h1 {
+    font-size: clamp(38px, 5.5vw, 52px);
+    line-height: 1.05;
+    margin: 0 0 18px;
+    letter-spacing: -0.025em;
+    font-weight: 700;
+}
+
+.me .bio {
+    font-size: 17px;
+    color: var(--text-dim);
+    margin: 0;
+    max-width: 600px;
+    line-height: 1.55;
+}
+
+.interests {
+    list-style: none;
+    padding: 0;
+    margin: 20px 0 0;
+}
+
+.interests li {
+    margin: 0;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    line-height: 1.55;
+}
+
+.interests li:last-child {
+    border-bottom: none;
+}
+
+.interests strong {
+    color: var(--text);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+.links-list {
+    list-style: none;
+    padding: 0;
+    margin: 20px 0 0;
+}
+
+.links-list li {
+    margin: 0;
+    padding: 12px 0;
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 14px;
+}
+
+.links-list a {
+    color: var(--text);
+    border-bottom-color: var(--border-strong);
+    margin-right: 4px;
+}
+
+.links-list a:hover {
+    color: var(--accent);
 }
 
 .page-head {
