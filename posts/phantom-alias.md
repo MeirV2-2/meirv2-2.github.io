@@ -7,7 +7,25 @@ You pay one tell at the end. We'll get to it.
 
 > **Note on prior art.** I haven't seen this exact technique published anywhere. The primitives it composes are old - reflective loading, manual LDR splicing, growable function tables, the threadpool dispatch trick - but the specific combination (keep the real alias DLL fully untouched on disk and in memory, register a duplicate-name LDR entry with full RB tree insertion, and coexist with the original in the loader graph) is one I arrived at while trying to defeat module-integrity scanners without giving up module attribution. If you've seen this written up before or know who got there first, please reach out so I can credit it properly.
 
+## What this gets you
+
+Three concrete things, before the deep dive.
+
+**Memory scans come back almost clean.** A single finding ("abnormal private executable memory") instead of the four to seven that classic injection techniques trigger. One signal lives in noise. Seven is an alert.
+
+**Stack traces look right.** Every frame symbolizes. The payload's frames resolve to the alias DLL, and the walker continues cleanly back through ntdll's threadpool internals to `RtlUserThreadStart`. No "unattributed memory" gap.
+
+**Module enumeration tells the same story.** `EnumProcessModules` shows the payload as the alias DLL, sitting next to the real one. Tools that diff loaded modules against a baseline don't see a stranger - they see "this process has the alias DLL loaded, like every other process."
+
+The cost: one private region with executable pages. That's the only tell. Everything else - bytes on disk, image hashes, thread origins, ETW image-load events, stack-walker attribution - stays consistent with a normal DLL.
+
+The rest is how it's built.
+
 ## How module attribution actually works
+
+Before the technique, the bookkeeping it has to satisfy. Skip ahead if you already know the four places the loader records "this module exists." Otherwise:
+
+
 
 The Windows loader tracks loaded modules in four places that scanners care about:
 
@@ -45,7 +63,11 @@ The flow:
 
 After this, two entries with the same `BaseDllName` coexist in the loader. `EnumProcessModules` returns both. `RtlPcToFileHeader` returns whichever covers the queried IP - for any IP in the phantom region, that's the phantom, and the phantom says the alias name.
 
+Now the six steps in detail. Each has a code snippet, then prose about what's actually happening behind the API.
+
 ### 1. Allocate
+
+A normal call to the kernel for a chunk of process-private memory. Nothing exotic happens here yet - we're just getting somewhere to put the payload.
 
 ```cpp
 PVOID base = nullptr;
@@ -61,6 +83,8 @@ Plain version: ask the kernel for a chunk of process-private memory big enough t
 Memory regions on Windows are tagged by `Type` in `MEMORY_BASIC_INFORMATION`: `MEM_IMAGE` (backed by a SEC_IMAGE section, the type used for every loaded DLL), `MEM_MAPPED` (backed by a SEC_COMMIT section or pagefile), or `MEM_PRIVATE` (committed via `NtAllocateVirtualMemory` directly). Heaps and stacks are private; code rarely is. That asymmetry is what makes private+exec a meaningful signal.
 
 ### 2. Get a real loaded alias to mimic
+
+We need a template to copy from. The cleanest way is to make sure a real, fully-initialized instance of the alias DLL exists in the process, then read fields off its `LDR_DATA_TABLE_ENTRY`.
 
 ```cpp
 LdrEntry* target = FindLoadedModule(aliasName);
@@ -80,6 +104,8 @@ We need a genuine `LDR_DATA_TABLE_ENTRY` for the alias DLL because we're going t
 The crucial fields we'll lift off the real entry are `TimeDateStamp` (from the PE's `IMAGE_FILE_HEADER`), `BaseNameHashValue` (a hash the loader computes from `BaseDllName` and uses for fast lookups), `OriginalBase` (the PE's preferred load address before ASLR), and `SigningLevel` (a single byte the loader sets from Code Integrity policy: 0 = unsigned, 4 = authenticode-signed, 12 = Microsoft-signed, etc.). Anything that's "supposed to be constant" for a given DLL is what an integrity check would compare.
 
 ### 3. Build the phantom
+
+This is the heart of the technique. Two heap allocations, one a fake `LDR_DATA_TABLE_ENTRY` and one a fake `LDR_DDAG_NODE`. Filling them out correctly is what gets the loader to accept this region as a real module instead of dereferencing through a NULL field five minutes later when something walks the wrong list.
 
 ```cpp
 auto* entry = (LdrEntry*) RtlAllocateHeap(heap, HEAP_ZERO_MEMORY,
@@ -134,6 +160,8 @@ The `HashLinks` field is part of `LdrpHashTable`, a 32-bucket hash table keyed o
 
 ### 4. Splice and insert
 
+The phantom entry exists in memory but the loader doesn't know about it yet. This step plugs it into the four data structures that scanners (and the OS itself) consult to find loaded modules.
+
 ```cpp
 LdrLockLoaderLock(0, &state, &cookie);
 InsertAfter(&target->InLoadOrderLinks,   &entry->InLoadOrderLinks);
@@ -158,9 +186,9 @@ The tree address isn't exported. To find it, walk up from any known entry's `Bas
 
 Once inserted, any call to `RtlPcToFileHeader` with an IP in `[base, base+size)` traverses the tree, finds our node, and returns the `LDR_DATA_TABLE_ENTRY` it's embedded in - which says the alias name.
 
-<img alt="image" src="https://github.com/user-attachments/assets/b8f4ccb2-2e32-49b0-8166-458810307e41" />
-
 ### 5. Register unwind data
+
+The loader knows about us. Stack walkers don't, yet — they need a separate hint so they can unwind through our frames without giving up.
 
 ```cpp
 PVOID handle = nullptr;
@@ -179,6 +207,8 @@ The `runtimeFunctions` array is a sorted (ascending by `BeginAddress`) sequence 
 For a DLL payload, use the agent's own `.pdata` directly from its mapped image - extract `IMAGE_DIRECTORY_ENTRY_EXCEPTION` and pass that pointer. For raw position-independent code, you need to ship the `RUNTIME_FUNCTION[]` and `UNWIND_INFO` blobs separately and adjust their RVAs at load time. There's no clever way around it - the unwinder needs the metadata. Without it, walks die at the first frame inside your code.
 
 ### 6. Dispatch via threadpool
+
+Last step. Running the payload via `CreateThread` would defeat half the point — EDRs log thread starts and inspect their start addresses. Use a worker that already exists instead.
 
 ```cpp
 HANDLE trigger;
@@ -208,6 +238,8 @@ ntdll!RtlUserThreadStart
 
 The payload's frames symbolize as the alias DLL because that's what the AVL hands back. The walker continues past them cleanly back to `ntdll!RtlUserThreadStart`, the universal start of every Windows user-mode thread.
 
+That's the whole technique. Six steps, mostly bookkeeping. The rest of this post is checking what we actually got — first against what scanners look for in general, then against an actual scanner.
+
 ## Why this evades the usual catches
 
 **Thread start address scanning.** Every serious EDR logs thread creation and inspects the start address. A thread starting in private memory is one of the highest-confidence shellcode indicators there is. We never create a thread. The worker has been there since process startup, with `TEB.StartAddress` in ntdll.
@@ -220,13 +252,13 @@ The payload's frames symbolize as the alias DLL because that's what the AVL hand
 
 **ETW image-load events.** None. `Microsoft-Windows-Kernel-Process/Image_Load` fires from `MiCreateImageFileMap` in the kernel. We never enter that path because we never create an image section.
 
+That's the theory. Time to check it against an actual scanner.
+
 ## Validation against Moneta
 
 I ran [Moneta](https://github.com/forrest-orr/moneta) Forrest Orr's open-source scanner against a reference implementation. The relevant output, with addresses redacted:
 
 <img alt="image" src="https://github.com/user-attachments/assets/755cb1e5-9a40-4cb7-9883-864bdd46ceb8" />
-
-(Representative; exact addresses vary per run.)
 
 One finding. **Abnormal private executable memory** on the code page. That's real and we didn't hide it. The region is `PAGE_EXECUTE_READ`, `MEM_PRIVATE`, and a thread is executing inside it. Moneta reports exactly what's there.
 
@@ -239,6 +271,8 @@ What Moneta did *not* flag:
 
 For comparison, the classic injection methods tested in Forrest Orr's own Moneta posts each light up four to seven findings, including the high-confidence ones ("modified code in image," "missing PEB module"). One finding versus seven is not a tie.
 
+The obvious next question — and the one anyone designing detections should ask — is whether that one remaining finding is enough on its own.
+
 ## Is `MEM_PRIVATE + executable` a useful IOC on its own?
 
 No, and the whole technique rests on this claim.
@@ -250,6 +284,8 @@ A scanner that fires on every private-exec region produces hundreds of false pos
 PhantomAlias produces the signal. It produces none of the correlating ones. The thread didn't start from the region. The memory was never RWX. No unsigned module loaded. The parent process is whatever you injected into.
 
 Scanners that hard-flag every private-exec region without correlation do catch this. There are some. They produce enough false positives that customers turn those rules off.
+
+None of this means the technique is invisible — only that the noise floor for its one tell is high. Below are the places it does cleanly fail.
 
 ## Where it breaks
 
