@@ -159,7 +159,7 @@ The tree address isn't exported. To find it, walk up from any known entry's `Bas
 
 Once inserted, any call to `RtlPcToFileHeader` with an IP in `[base, base+size)` traverses the tree, finds our node, and returns the `LDR_DATA_TABLE_ENTRY` it's embedded in - which says the alias name.
 
-<img width="493" height="358" alt="image" src="https://github.com/user-attachments/assets/b8f4ccb2-2e32-49b0-8166-458810307e41" />
+<img alt="image" src="https://github.com/user-attachments/assets/b8f4ccb2-2e32-49b0-8166-458810307e41" />
 
 ### 5. Register unwind data
 
@@ -225,7 +225,7 @@ The payload's frames symbolize as the alias DLL because that's what the AVL hand
 
 I ran [Moneta](https://github.com/forrest-orr/moneta) Forrest Orr's open-source scanner against a reference implementation. The relevant output, with addresses redacted:
 
-<img width="1719" height="867" alt="image" src="https://github.com/user-attachments/assets/755cb1e5-9a40-4cb7-9883-864bdd46ceb8" />
+<img alt="image" src="https://github.com/user-attachments/assets/755cb1e5-9a40-4cb7-9883-864bdd46ceb8" />
 
 (Representative; exact addresses vary per run.)
 
