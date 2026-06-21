@@ -1,5 +1,4 @@
-# meirv2-2.github.io
-# PhantomAlias: Module Identity Without the Module
+﻿# PhantomAlias: Module Identity Without the Module
 
 Most in-process injection techniques die at the same checkpoint. A scanner walks the process's loaded modules, finds executable memory that doesn't belong to any of them, and asks why. Allocate private RWX, reflectively load a DLL nobody knows about, overwrite a real module's `.text` - every variant trips on the same kind of bookkeeping mismatch. Either the bytes don't match what's supposed to be there, the memory type is wrong for code, or there's a module the OS doesn't think exists.
 
