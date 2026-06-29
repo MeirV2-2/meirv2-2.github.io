@@ -118,9 +118,21 @@
         marked.setOptions({ gfm: true, breaks: false, mangle: false, headerIds: true });
         const body = marked.parse(markdown);
 
+        let metaLine = post.date || '';
+        if (post.repo) {
+            const repoUrl = /^https?:\/\//i.test(post.repo)
+                ? post.repo
+                : 'https://github.com/' + post.repo;
+            if (metaLine) metaLine += ' &middot; ';
+            metaLine +=
+                'source: <a href="' + escapeHtml(repoUrl) + '" target="_blank" rel="noopener">' +
+                escapeHtml(post.repo.replace(/^https?:\/\/github\.com\//i, '')) +
+                '</a>';
+        }
+
         target.innerHTML =
             '<h1>' + escapeHtml(post.title) + '</h1>' +
-            '<p class="post-meta">' + (post.date || '') + '</p>' +
+            '<p class="post-meta">' + metaLine + '</p>' +
             body;
 
         document.querySelectorAll('pre code').forEach(block => {
