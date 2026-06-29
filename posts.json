@@ -4,7 +4,8 @@
             "slug": "phantom-alias",
             "title": "PhantomAlias: Module Identity Without the Module",
             "date": "2026-06-21",
-            "summary": "A Windows x64 loader that convinces the loader graph a brand-new private allocation is a second instance of a signed Microsoft DLL — without touching the original on disk or in memory."
+            "summary": "A Windows x64 loader that convinces the loader graph a brand-new private allocation is a second instance of a signed Microsoft DLL — without touching the original on disk or in memory.",
+            "repo": "meirv2-2/PhantomAlias"
         }
     ]
 }
